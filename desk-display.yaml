@@ -1,0 +1,484 @@
+substitutions:
+  prefix: desk-display
+  device_name: "desk-display"
+  device_description: "An display to show a home assistant ui"
+
+esphome:
+  name: ${device_name}
+  comment: "${device_description}"
+  on_boot:
+    priority: 600
+    then:
+      - lvgl.page.show: home
+  #     - script.execute: draw_display
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  flash_size: 8MB  #try 32MB if this works
+  framework:
+    type: esp-idf
+    version: recommended
+
+ota:
+  - platform: esphome
+    password: !secret ota_desk_display
+    # on_begin:
+    #   then:
+    #     - logger.log: "OTA start a"
+    #     - lvgl.widget.hide: root
+    #     - lvgl.widget.show: popup_obj
+    #     - lvgl.resume:
+    #     - lvgl.widget.redraw:
+    #     - logger.log: "OTA start b"
+    # on_progress:
+    #   then:
+    #     - lvgl.bar.update:
+    #         id: lv_bar
+    #         value: !lambda "return (int)x;"
+    #     - lambda: "id(lv_id).loop();"
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  fast_connect: true
+  manual_ip:
+    static_ip: !secret ip_desk_display
+    gateway: 172.16.16.1
+    subnet: 255.255.252.0
+
+api:
+  encryption:
+    key: !secret key_desk_display
+#   on_client_connected:
+    # - script.execute: draw_display
+#   on_client_disconnected:
+    # - script.execute: draw_display
+
+logger:
+
+button:
+  - platform: factory_reset
+    id: factory_reset_btn
+    internal: true
+
+i2c:
+  sda: 11
+  scl: 7
+  scan: true
+  id: bus_a
+
+touchscreen:
+  - platform: cst816
+    i2c_id: bus_a
+    interrupt_pin: GPIO12
+    reset_pin: GPIO06
+    id: my_touchscreen
+    on_touch:
+      - logger.log:
+          format: "Touch at (%d, %d)"
+          args: [touch.x, touch.y]
+
+# https://community.home-assistant.io/t/low-cost-esp32-voice-platforms/864438/18
+# https://spotpear.com/wiki/ESP32-S3-AI-1.54-inch-LCD-Display-TouchScreen-N16R8-muma-DeepSeek.html
+# https://github.com/RyanEwen/esphome-lvgl/tree/main
+# https://gist.github.com/clydebarrow/ef89e9a93bd44771483b9144ae9042a1
+
+# swipe
+# https://community.home-assistant.io/t/esp32-s3-box-3-as-bedside-clock-with-lvgl-swipe/835084
+spi:
+  clk_pin: GPIO04 #14
+  mosi_pin: GPIO02 #17
+    # interface: hardware
+  id: spi0
+
+# display:
+#   - platform: st7789v
+#     model: "Adafruit Funhouse 240x240"
+#     spi_id: spi0
+#     cs_pin: GPIO05
+#     dc_pin: GPIO47
+#     reset_pin: GPIO14
+#     rotation: 0
+#     width: 240
+#     height: 240
+#     # color_order: BGR
+#     # invert_colors: false
+#     backlight_pin: GPIO21
+#     update_interval: 1s
+
+display:
+  - platform: ili9xxx
+    id: lcd
+    model: st7789v
+    dimensions:
+      height: 240
+      width: 240
+      offset_height: 0
+      offset_width: 0
+    transform:
+      swap_xy: false
+      mirror_x: false
+      mirror_y: false
+    color_order: bgr
+    invert_colors: true
+    data_rate: 80MHz
+    cs_pin: GPIO05
+    dc_pin: GPIO47
+    reset_pin: GPIO14
+    auto_clear_enabled: false
+    update_interval: never
+    # lambda: |-
+    #   auto touch = id(my_touchscreen)->get_touch();
+    #   if (touch) // or touch.has_value()
+    #     it.fill(id(red));
+    #     it.filled_circle(touch.value().x, touch.value().y, 10, Color::BLACK);
+    # pages:
+    #   - id: idle_page
+    #     lambda: |-
+    #       // it.fill(Color::BLACK);
+    #       // it.fill(id(idle_color));
+    #       it.fill(id(red));
+    #       // it.image((it.get_width() / 2), (it.get_height() / 2), id(casita_idle), ImageAlign::CENTER);
+    #       // id(draw_timer_timeline).execute();
+    #       // id(draw_active_timer_widget).execute();
+
+image:
+  - file: "assets/fad/sun.svg"
+    type: GRAYSCALE
+    id: fad_sun
+    resize: 24x24
+
+# Define a PWM output on the ESP32
+output:
+  - platform: ledc
+    pin: GPIO42
+    id: backlight_pwm
+    inverted: True
+    #why does the display turn on to then dimm on again
+
+# Define a monochromatic, dimmable light for the backlight
+light:
+  - platform: monochromatic
+    output: backlight_pwm
+    name: "Display Backlight"
+    id: back_light
+    initial_state: 
+      brightness: 100% 
+    restore_mode: ALWAYS_ON
+
+# color:
+#   - id: red
+#     red: 100%
+#     green: 0%
+#     blue: 0%
+color:
+  - id: bg_color
+    hex: '000000'
+
+
+sensor:
+  - platform: homeassistant
+    id: solar_production
+    entity_id: sensor.solar_production
+    on_value:
+      - lvgl.label.update:
+          id: lbl_solar_power
+          text:
+            format: "#FFEA00 %.1fW #"
+            args: [ 'x' ]
+
+  - platform: homeassistant
+    id: home_power
+    entity_id: sensor.home_power
+    on_value:
+      - lvgl.label.update:
+          id: lbl_home_power
+          text:
+            format: "#FFFFFF %.1fW #"
+            args: [ 'x' ]
+
+  - platform: homeassistant
+    id: grid_power_consumed
+    entity_id: sensor.power_consumed
+    on_value:
+      - if:
+          condition:
+            lambda: 'return x >= 0.001;'
+          then:
+          - lvgl.label.update:
+              id: lbl_grid_power
+              text:
+                format: "#488FC2 %.3fkW #"
+                args: [ 'x' ]
+
+  - platform: homeassistant
+    id: grid_power_produced
+    entity_id: sensor.power_produced
+    on_value:
+      - if:
+          condition:
+            lambda: 'return x >= 0.001;'
+          then:
+            - lvgl.label.update:
+                id: lbl_grid_power
+                text:
+                  format: "#A280C4 %.3fkW #"
+                  args: [ 'x' ]
+
+  - platform: homeassistant
+    id: grid_car_power
+    entity_id: sensor.smappee_power
+    on_value:
+      - lvgl.label.update:
+          id: lbl_ev_power
+          text:
+            format: "#FFFFFF %.1fW #"
+            args: [ 'x' ]
+
+  - platform: homeassistant
+    id: grid_battery_power
+    entity_id: sensor.sonnenbatterie_213526_state_battery_inout
+    on_value:
+      - if:
+          condition:
+            lambda: 'return x > 0;'
+          then:
+            - lvgl.label.update:
+                id: lbl_battery_power
+                text:
+                  format: "#4db6ac %.1fW #"
+                  args: [ 'x' ]
+          else:
+            #set x to abs
+            - lambda: 'x = abs(x);'
+            - lvgl.label.update:
+                id: lbl_battery_power
+                text:
+                  format: "#f06284 %.1fW #"
+                  args: [ 'x' ]
+  
+  - platform: homeassistant
+    id: grid_battery_pct
+    entity_id: sensor.sonnenbatterie_213526_state_charge_user
+    on_value:
+      - lvgl.label.update:
+          id: lbl_battery_pct
+          text:
+            format: "#FFFFFF %.0f%% #"
+            args: [ 'x' ]
+
+  - platform: homeassistant
+    id: car_xc40_pct
+    entity_id: sensor.volvo_xc40_battery
+    on_value:
+      - lvgl.label.update:
+          id: lbl_xc40_battery_pct
+          text:
+            format: "#FFFFFF %.0f%% #"
+            args: [ 'x' ]
+
+  - platform: homeassistant
+    id: car_twingo_pct
+    entity_id: sensor.twingo_battery_level
+    on_value:
+      - lvgl.label.update:
+          id: lbl_twingo_battery_pct
+          text:
+            format: "#FFFFFF %.0f%% #"
+            args: [ 'x' ]
+
+  
+      # - if:
+      #     condition:
+      #       lambda: 'return x > 0;'
+      #     then:
+      #       - lvgl.label.update:
+      #           id: lbl_battery_power
+      #           text:
+      #             format: "#4db6ac %.1fW #"
+      #             args: [ 'x' ]
+      #     else:
+      #       - lvgl.label.update:
+      #           id: lbl_battery_power
+      #           text:
+      #             format: "#f06284 %.1fW #"
+      #             args: [ 'x' ]
+
+
+    # on_value:
+    #   - lvgl.label.update:
+    #       id: lbl_grid_power_produced
+    #       text:
+    #         format: "#FFFFFF %.1fW #"
+    #         args: [ 'x' ]
+
+binary_sensor:
+  - platform: homeassistant
+    id: car_charger
+    entity_id: input_boolean.smappee_charge
+    on_state:
+      - lvgl.widget.update:
+          id: ev_switch
+          state:
+            checked: !lambda return x;
+
+# script:
+#   - id: draw_display
+#     then:
+#       - lambda: |
+#               id(lcd).update();
+        # id(lcd).show_page(idle_page);
+
+lvgl:
+  buffer_size: 25%
+  displays:
+    - lcd
+  touchscreens:
+    - my_touchscreen
+  bg_color: black
+  
+  
+  pages:
+    - id: home
+      # root: true
+      bg_color: bg_color
+      widgets:
+
+        - image:
+            id: lbl_solar_power_icon
+            src: fad_sun
+            x: 10
+            y: 10
+            # image_recolor: "0XFFEA00"
+            # image_recolor_opa: COVER
+        - label:
+            id: lbl_solar_power
+            text: "~W"
+            x: 40
+            y: 10
+            recolor: true
+
+        - label:
+            id: lbl_home_power
+            text: "~W"
+            x: 150
+            y: 10
+            recolor: true
+            # icon: "mdi:home"
+            # icon_color: "#E0E0E0"
+
+
+            
+        - label:
+            id: lbl_grid_power
+            text: "~W"
+            x: 40
+            y: 40
+            recolor: true
+            # "#2196F3"
+            # text_font: "lv_font_montserrat_20"
+            # icon: "mdi:transmission-tower"
+            # icon_color: "#2196F3"
+        - label:
+            id: lbl_battery_power
+            text: "~W"
+            x: 150
+            y: 40
+            recolor: true
+            # "#E040FB"
+            # text_font: "lv_font_montserrat_20"
+            # icon: "mdi:battery"
+            # icon_color: "#43FF43"
+        # - bar:
+        #     id: battery_bar
+        #     x: 150
+        #     y: 90
+        #     width: 60
+        #     height: 10
+        #     value: 77
+        #     range: [0, 100]
+        #     color: "#43FF43"
+        - label:
+            id: lbl_battery_pct
+            text: "~%"
+            x: 125
+            y: 55
+            recolor: true
+            text_font: montserrat_12
+
+        - label:
+            id: lbl_xc40
+            text: "#FFFFFF XC40 #"
+            x: 10
+            y: 120
+            recolor: true
+
+            # "#FFFFFF"
+        #     text_font: "lv_font_montserrat_18"
+        # # - icon:
+        # #     id: icon_xc40
+        #     icon: "mdi:car"
+        #     x: 10
+        #     y: 135
+        #     color: "#2196F3"
+        #     size: 32
+        - label:
+            id: lbl_xc40_battery_pct
+            text: "~%"
+            x: 18
+            y: 180
+            recolor: true
+            # "#FFFFFF"
+        #     text_font: "lv_font_montserrat_14"
+
+        - label:
+            id: lbl_twingo
+            text: "#FFFFFF Twingo #"
+            x: 90
+            y: 120
+            recolor: true
+            # "#FFFFFF"
+        #     text_font: "lv_font_montserrat_18"
+        # # - icon:
+        # #     id: icon_twingo
+        #     icon: "mdi:car"
+        #     x: 90
+        #     y: 135
+        #     color: "#2196F3"
+        #     size: 32
+        - label:
+            id: lbl_twingo_battery_pct
+            text: "~%"
+            x: 98
+            y: 180
+            recolor: True
+
+        #     text_font: "lv_font_montserrat_14"
+        # # - icon:
+        # #     id: icon_ev
+        #     icon: "mdi:ev-station"
+        #     x: 170
+        #     y: 150
+        #     color: "#2196F3"
+        #     size: 32
+        - label:
+            id: lbl_ev_power
+            text: "~W"
+            x: 170
+            y: 180
+            recolor: true
+            # "#FFFFFF"
+        #     text_font: "lv_font_montserrat_14"
+        - switch:
+            id: ev_switch
+            x: 170
+            y: 145
+            # state: true
+            # recolor: true
+            # "#00C800"
+            on_click:
+              - homeassistant.action:
+                  action: input_boolean.toggle
+                  data:
+                    entity_id: input_boolean.smappee_charge

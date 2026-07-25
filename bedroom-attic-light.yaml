@@ -1,0 +1,344 @@
+substitutions:
+  prefix: Bedroom Attic
+  device_name: bedroom-attic
+  device_description: "Shelly 1L connected to bedroom buttons and light on the attic floor"
+
+esphome:
+  name: ${device_name}
+  comment: "${device_description}"
+  on_boot:
+    priority: 600
+    then: 
+      lambda: |-
+        id(button_1).publish_state("");
+        id(button_2).publish_state("");
+      # id(my_ota).set_auth_password("VKWK9AmUtkCU3GUyuuKE8L4kSAg4MbLBbHuUFBuDQmF2ZAuiHHNQgffzagfUErf");
+
+
+
+esp8266:
+  board: esp01_1m
+  restore_from_flash: True
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: "KoKkBX7SBoIc/u73uHfibjBxl0uBbrmVqvcwoQBHG94="
+
+ota:
+  - platform: esphome
+    password: "VKWK9AmUtkCU3GUyuuKE8L4kSAg4MbLBbHuUFBuDQmF2ZAuiHHNQgffzagfUErf"
+  # password: "empty-device-flashme"
+  # id: my_ota
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  fast_connect: true
+  manual_ip:
+    static_ip: !secret ip_bedroom-attic_light
+    gateway: 172.16.16.1
+    subnet: 255.255.252.0
+  # use_address: 172.16.17.222
+  
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "${prefix} Fallback Hotspot"
+    password: "A7KUHGbuzkqwcVRFD"
+
+captive_portal:
+    
+    
+status_led:
+  pin:
+    number: GPIO0
+    inverted: true
+
+output:
+  - platform: gpio
+    id: relay_1
+    pin: GPIO5
+
+light:
+  - platform: binary
+    id: light_1
+    name: ${prefix} Light
+    output: relay_1    
+
+binary_sensor:
+    
+  - platform: gpio
+    name: "${prefix} Button 1 State"
+    pin: 
+      number: GPIO4
+      # mode: INPUT_PULLUP
+      # inverted: True
+    # on_press:
+    # - light.toggle: cupboard_light_sink
+    # - light.toggle: cupboard_light_cooktop
+    # device_class: motion
+    id: button_1_raw
+    # internal: true
+    filters:
+      - delayed_on: 80ms
+    on_multi_click:
+      - timing:
+          - ON for 20ms to 400ms
+          - OFF for at least 300ms
+        then:
+          - lambda: |-
+              if(id(operating_mode_1).state == "Decoupled") return;
+              auto call = id(light_1).toggle();
+              call.perform();
+          - text_sensor.template.publish:
+              id: button_1
+              state: !lambda 'return "click";'
+      - timing:
+          - ON for 20ms to 400ms
+          - OFF for 20ms to 400ms
+          - ON for 20ms to 400ms
+          - OFF for at least 400ms
+        then:
+          - text_sensor.template.publish:
+              id: button_1
+              state: !lambda 'return "double_click";'
+      - timing:
+          - ON for at least 500ms
+        then:
+          - text_sensor.template.publish:
+              id: button_1
+              state: !lambda 'return "hold";'
+    on_release:
+      then:
+        - lambda: |-
+            id(button_1).publish_state("release");
+
+  - platform: gpio
+    name: "${prefix} Button 2 State"
+    pin: 
+      number: GPIO14
+      # mode: INPUT_PULLUP
+      # inverted: True
+    # on_press:
+    # - light.toggle: cupboard_light_sink
+    # - light.toggle: cupboard_light_cooktop
+    # device_class: motion
+    id: button_2_raw
+    # internal: true
+    filters:
+      - delayed_on: 80ms
+    on_multi_click:
+      - timing:
+          - ON for 20ms to 400ms
+          - OFF for at least 300ms
+        then:
+          - lambda: |-
+              if(id(operating_mode_2).state == "Decoupled") return;
+              auto call = id(light_1).toggle();
+              call.perform();
+          - text_sensor.template.publish:
+              id: button_2
+              state: !lambda 'return "click";'
+      - timing:
+          - ON for 20ms to 400ms
+          - OFF for 20ms to 400ms
+          - ON for 20ms to 400ms
+          - OFF for at least 400ms
+        then:
+          - text_sensor.template.publish:
+              id: button_2
+              state: !lambda 'return "double_click";'
+      - timing:
+          - ON for at least 500ms
+        then:
+          - text_sensor.template.publish:
+              id: button_2
+              state: !lambda 'return "hold";'
+    on_release:
+      then:
+        - lambda: |-
+            id(button_2).publish_state("release");
+
+  - platform: status
+    disabled_by_default: True
+    id: home_assistant_online
+    name: "${prefix} Switch Connected"
+    on_state: 
+      then:
+        - lambda: |-
+            if(x) return;
+            auto call1 = id(operating_mode_1).make_call();
+            call1.set_option("Control Output");
+            call1.perform();
+
+            auto cal2 = id(operating_mode_2).make_call();
+            cal2.set_option("Control Output");
+            cal2.perform();
+            
+
+
+text_sensor:
+  - platform: template
+    name: '${prefix} Button 1 action'
+    id: button_1
+    on_value: # When a state is set
+      then:
+        - if:
+            condition:
+              text_sensor.state:
+                id: button_1
+                state: ''
+            else: # If non-empty
+              - delay: 100ms
+              - text_sensor.template.publish:
+                  id: button_1
+                  state: !lambda 'return "";' # Reset to empty
+  - platform: template
+    name: '${prefix} Button 2 action'
+    id: button_2
+    on_value: # When a state is set
+      then:
+        - if:
+            condition:
+              text_sensor.state:
+                id: button_2
+                state: ''
+            else: # If non-empty
+              - delay: 100ms
+              - text_sensor.template.publish:
+                  id: button_2
+                  state: !lambda 'return "";' # Reset to empty
+
+select:
+  - platform: template
+    name: "${prefix} Operating Mode SW1"
+    id: operating_mode_1
+    entity_category: config
+    optimistic: true
+    options:
+      - Decoupled
+      - Control Output
+    restore_value: True
+    initial_option: Control Output
+    set_action: 
+      then:
+        - lambda: |-
+            return;
+  - platform: template
+    name: "${prefix} Operating Mode SW2"
+    id: operating_mode_2
+    entity_category: config
+    optimistic: true
+    options:
+      - Decoupled
+      - Control Output
+    restore_value: True
+    initial_option: Control Output
+    set_action: 
+      then:
+        - lambda: |-
+            return;
+
+sensor:
+  - platform: ntc
+    sensor: temp_resistance_reading
+    name: ${device_name}_temperature
+    unit_of_measurement: "°C"
+    accuracy_decimals: 1
+    icon: "mdi:thermometer"
+    calibration:
+      b_constant: 3350
+      reference_resistance: 10kOhm
+      reference_temperature: 298.15K
+    on_value_range:
+      - above: "80.0"
+        then:
+          - light.turn_off: light_1
+  - platform: resistance
+    id: temp_resistance_reading
+    sensor: temp_analog_reading
+    configuration: DOWNSTREAM
+    resistor: 32kOhm
+  - platform: adc
+    id: temp_analog_reading
+    pin: A0
+
+
+# Define the operating_mode variable with 3 possible states
+# It is initially set to "decoupled"
+# This variable can be controlled from Home Assistant
+# variables:
+#   - id: operating_mode
+#     name: Operating Mode
+#     type: string
+#     initial_value: "decoupled"
+#     options:
+#       - "decoupled"
+#       - "control_relay"
+#   - id: switch_type
+#     name: Operating Mode
+#     type: string
+#     initial_value: "decoupled"
+#     options:
+#       - "decoupled"
+#       - "control_relay"
+    # on_value:
+    #   - if:
+    #       condition:
+    #         lambda: "return id(operating_mode) == 'control_relay_push';"
+    #       then:
+    #         - switch.turn_on: my_relay
+    #     - if:
+    #       condition:
+    #         lambda: "return id(operating_mode) == 'control_relay_toggle';"
+    #       then:
+    #         - switch.toggle: my_relay
+    #     - if:
+    #       condition:
+    #         lambda: "return id(operating_mode) == 'decoupled';"
+    #       then:
+    #         - switch.turn_off: my_relay
+
+# Define the switch
+# This switch can be controlled from Home Assistant
+# switch:
+#   - platform: gpio
+#     name: "My Switch"
+#     id: switch_1
+#     pin: GPIO04
+#     on_multi_click:
+#       - timing:
+#           - ON for at most 0.3s
+#           - OFF for at least 0.2s
+#           - ON for at most 0.3s
+#         then:
+          
+#               if (id(operating_mode) == "control_relay_push") {
+#                 id(my_relay).turn_on();
+#               }
+#               if (id(operating_mode) == "control_relay_toggle") {
+#                 id(my_relay).toggle();
+#               }
+#       - timing:
+#           - ON for at most 0.3s
+#           - OFF for at least 0.2s
+#           - ON for at most 0.3s
+#           - OFF for at least 0.2s
+#           - ON for at most 0.3s
+#         then:
+#           - lambda: |-
+#               id(my_lamp).turn_off();
+#               if (id(operating_mode) == "control_relay_push") {
+#                 id(my_relay).turn_off();
+#               }
+#     on_hold:
+#       then:
+#         - lambda: id(my_lamp).turn_on()
+#     on_release:
+#       then:
+#         - lambda: id(my_lamp).turn_off()
+

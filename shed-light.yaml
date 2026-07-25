@@ -1,0 +1,64 @@
+substitutions:
+  prefix: Shed Light
+  device_name: shed-light
+  device_description: "Sonnof basic connected to the light in the shed"
+
+
+
+esphome:
+  name: ${device_name}
+  comment: "${device_description}"
+  friendly_name: ${prefix}
+
+esp8266:
+  board: esp01_1m
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  fast_connect: true
+  manual_ip:
+    static_ip: !secret ip_shed_light
+    gateway: 172.16.16.1
+    subnet: 255.255.252.0
+# Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: ${device_name}
+    ap_timeout: 15s
+    password: "HqJ6Vjhv425dgzu92y47vduKJDH248"
+
+captive_portal:
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: "wHvhwgjZw3XsGL8BPChnx9WseBpg0F/b/H3rO9cUseE="
+
+ota:
+  - platform: esphome
+    password: "Ht4vGBYlO5FyqDO4K28Fp3k3wvYP86r0ouSv7mHwcSMEThn7dcbc5aGg7k0yW"
+
+
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: GPIO0
+      mode: INPUT_PULLUP
+      inverted: True
+    name: "${prefix} Manual Override"
+    on_press:
+      - switch.toggle: relay
+
+switch:
+  - platform: gpio
+    name: "${prefix} Light Switch"
+    pin: GPIO12
+    id: relay
+
+status_led:
+  pin:
+    number: GPIO13
+    inverted: yes

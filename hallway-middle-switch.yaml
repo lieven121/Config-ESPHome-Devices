@@ -1,0 +1,240 @@
+substitutions:
+  device_prefix: hallway-middle-switch
+  device_name: "Hallway Middle Switch"
+  device_description:  "Shelly 1L connected to hallway buttons and light on the middle floor"
+  device_ip: !secret hallway_middle_switch_ip
+  device_ota: !secret hallway_middle_switch_ota
+  device_key: !secret hallway_middle_switch_key
+
+  device_button_1: "Button 1"
+  device_button_2: "Button 2"
+
+#region General Config
+esphome:
+  name: ${device_prefix}
+  comment: "${device_description}"
+  friendly_name: ${device_name}
+
+logger:
+
+api:
+  encryption:
+    key: ${device_key}
+
+ota:
+  - platform: esphome
+    password: ${device_ota}
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  fast_connect: true
+  manual_ip:
+    static_ip: ${device_ip}
+    gateway: 172.16.16.1
+    subnet: 255.255.252.0
+  ap:
+    ssid: "${device_name} AP"
+    password: ${device_ota}
+
+captive_portal:
+#endregion
+
+#Device
+esp8266:
+  board: esp01_1m
+  restore_from_flash: True
+
+#IO
+status_led:
+  pin:
+    number: GPIO0
+    inverted: true
+
+output:
+  - platform: gpio
+    id: relay_1
+    pin: GPIO5
+
+switch:
+  - platform: output
+    id: switch_1
+    name: None
+    output: relay_1
+
+binary_sensor:
+  - platform: gpio
+    name: "${device_button_1} State"
+    pin: 
+      number: GPIO4
+      inverted: False
+    id: button_1_raw
+    filters:
+      - delayed_on_off: 10ms
+    on_multi_click:
+      - timing:
+          - ON for at most 350ms
+          - OFF for at least 250ms
+        then:
+          - logger.log: "${device_button_1}: Click"
+          - lambda: |-
+              if(id(operating_mode_1).state == "Decoupled") return;
+              id(switch_1).toggle();
+          - lambda: |-
+              id(button_1_event).trigger("click");
+      - timing:
+          - ON for at most 350ms
+          - OFF for at most 250ms
+          - ON for at most 350ms
+          - OFF for at least 250ms
+        then:
+          - logger.log: "${device_button_1}: Double Click"
+          - lambda: |-
+              id(button_1_event).trigger("double_click");
+      - timing:
+          - ON for at least 600ms
+        then:
+          - logger.log: "${device_button_1}: Hold"
+          - lambda: |-
+              id(button_1_event).trigger("hold");
+    on_release:
+        then:
+          - logger.log: "${device_button_1}: Release"
+          - lambda: |-
+              id(button_1_event).trigger("release");
+
+  - platform: gpio
+    name: "${device_button_2} State"
+    pin: 
+      number: GPIO14
+      # mode: INPUT_PULLUP
+      inverted: False
+    id: button_2_raw
+    # internal: true
+    filters:
+      - delayed_on_off: 10ms
+    on_multi_click:
+      - timing:
+          - ON for at most 350ms
+          - OFF for at least 250ms
+        then:
+          - logger.log: "${device_button_2}: Click"
+          - lambda: |-
+              if(id(operating_mode_2).state == "Decoupled") return;
+              id(switch_1).toggle();
+          - lambda: |-
+              id(button_2_event).trigger("click");
+      - timing:
+          - ON for at most 350ms
+          - OFF for at most 250ms
+          - ON for at most 350ms
+          - OFF for at least 250ms
+        then:
+          - logger.log: "${device_button_2}: Double Click"
+          - lambda: |-
+              id(button_2_event).trigger("double_click");
+      - timing:
+          - ON for at least 1s
+        then:
+          - logger.log: "${device_button_2}: Hold"
+          - lambda: |-
+              id(button_2_event).trigger("hold");
+    on_release:
+        then:
+          - logger.log: "${device_button_2}: Release"
+          - lambda: |-
+              id(button_2_event).trigger("release");
+
+  - platform: status
+    disabled_by_default: True
+    id: home_assistant_online
+    name: "${device_name} Connected"
+    on_state: 
+      then:
+        - lambda: |-
+            if(x) return;
+            auto call1 = id(operating_mode_1).make_call();
+            call1.set_option("Control Output");
+            call1.perform();
+
+            auto cal2 = id(operating_mode_2).make_call();
+            cal2.set_option("Control Output");
+            cal2.perform();
+
+event:
+  - platform: template
+    name: '${device_button_1} Event'
+    id: button_1_event
+    # Optional variables:
+    icon: "mdi:gesture-tap-button"
+    event_types:
+      - "click"
+      - "double_click"
+      - "hold"
+      - "release"
+
+  - platform: template
+    name: '${device_button_2} Event'
+    id: button_2_event
+    # Optional variables:
+    icon: "mdi:gesture-tap-button"
+    event_types:
+      - "click"
+      - "double_click"
+      - "hold"
+      - "release"
+
+select:
+  - platform: template
+    name: "${device_button_1} Operating Mode"
+    id: operating_mode_1
+    entity_category: config
+    optimistic: true
+    options:
+      - Decoupled
+      - Control Output
+    restore_value: True
+    initial_option: Control Output
+    set_action: 
+      then:
+        - lambda: |-
+            return;
+  - platform: template
+    name: "${device_button_2} Operating Mode"
+    id: operating_mode_2
+    entity_category: config
+    optimistic: true
+    options:
+      - Decoupled
+      - Control Output
+    restore_value: True
+    initial_option: Control Output
+    set_action: 
+      then:
+        - lambda: |-
+            return;
+
+sensor:
+  - platform: ntc
+    sensor: temp_resistance_reading
+    name: ${device_name} Temperature
+    entity_category: diagnostic
+    unit_of_measurement: "°C"
+    accuracy_decimals: 1
+    icon: "mdi:thermometer"
+    calibration:
+      b_constant: 3350
+      reference_resistance: 10kOhm
+      reference_temperature: 298.15K
+    on_value_range:
+      - above: "80.0"
+        then:
+          - switch.turn_off: switch_1
+  - platform: resistance
+    id: temp_resistance_reading
+    sensor: temp_analog_reading
+    configuration: DOWNSTREAM
+    resistor: 32kOhm
+  - platform: adc
+    id: temp_analog_reading
+    pin: A0

@@ -1,0 +1,100 @@
+substitutions:
+  device_prefix: home-office-ceiling-light
+  device_name: "Home office ceiling light"
+  device_description:  "H801 Connected to the home office ceiling light"
+  device_ip: !secret home_office_ceiling_light_ip
+  device_ota: !secret home_office_ceiling_light_ota
+  device_key: !secret home_office_ceiling_light_key
+
+  # device_button_1: "Button 1"
+  # device_button_2: "Button 2"
+
+#region General Config
+esphome:
+  name: ${device_prefix}
+  comment: "${device_description}"
+  friendly_name: ${device_name}
+
+logger:
+
+api:
+  encryption:
+    key: ${device_key}
+
+ota:
+  - platform: esphome
+    password: ${device_ota}
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  fast_connect: true
+  manual_ip:
+    static_ip: ${device_ip}
+    gateway: 172.16.16.1
+    subnet: 255.255.252.0
+  ap:
+    ssid: "${device_name} AP"
+    password: ${device_ota}
+
+captive_portal:
+#endregion
+
+esp8266:
+  board: esp01_1m
+
+output:
+  - platform: esp8266_pwm
+    pin: 12
+    frequency: 1000 Hz
+    id: pwm_b
+  - platform: esp8266_pwm
+    pin: 13
+    frequency: 1000 Hz
+    id: pwm_g
+  - platform: esp8266_pwm
+    pin: 15
+    frequency: 1000 Hz
+    id: pwm_r
+  - platform: esp8266_pwm
+    pin: 14
+    frequency: 1000 Hz
+    id: pwm_w1
+  - platform: esp8266_pwm
+    pin: 4
+    frequency: 1000 Hz
+    id: pwm_w2
+
+light:
+  # - platform: cwww
+  - platform: rgbww
+    name: None
+    cold_white: pwm_w1
+    warm_white: pwm_w2
+    cold_white_color_temperature: 6536 K
+    warm_white_color_temperature: 2000 K
+    constant_brightness: true
+    blue: pwm_b
+    green: pwm_g
+    red: pwm_r
+
+
+  # - platform: rgb
+  #   id: 'home_office_ceiling_light_rgb'
+  #   name: "RGB"
+  #   blue: pwm_b
+  #   green: pwm_g
+  #   red: pwm_r
+
+
+  # - platform: rgbww
+  #   name: "${prefix} Light"
+  #   red: pwm_r
+  #   green: pwm_g
+  #   blue: pwm_b
+  #   cold_white: pwm_w1
+  #   warm_white: pwm_w2
+  #   cold_white_color_temperature: 6536 K
+  #   warm_white_color_temperature: 2000 K
+  #   constant_brightness: true
+  #   # gamma_correct: 1

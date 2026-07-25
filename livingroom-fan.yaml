@@ -1,0 +1,82 @@
+#https://gist.github.com/dennismaxjung/48325e3171b7f9e277fc8b062f7d8955
+
+esphome:
+  name: livingroom-fan
+
+esp8266:
+  board: esp12e
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: "CO66ejBuYb+PKI2mjAef7VfGPtoxbNDgkizN8XzJoGk="
+
+ota:
+  - platform: esphome
+    password: "f4c49c444f04f96caf61f76c5cec500c"
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  fast_connect: true
+  manual_ip:
+    static_ip: !secret ip_livingroom_fan
+    gateway: 172.16.16.1
+    subnet: 255.255.252.0
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Livingroom fan Fallback Hotspot"
+    password: "1NAow20d54fhgGS5GGs97dh"
+
+captive_portal:
+
+
+time:
+  - platform: homeassistant
+    id: homeassistant_time
+
+# external_components:
+#   - source:
+#       type: git
+#       url: https://github.com/dennismaxjung/esphome
+#       ref: release
+#     components: [ tuya ]
+
+uart:
+  rx_pin: GPIO3
+  tx_pin: GPIO5
+  baud_rate: 9600
+
+# Register the Tuya MCU connection
+tuya:
+  time_id: homeassistant_time
+
+
+fan:
+  - platform: "tuya"
+    id: fan_01
+    name: "Livingroom Fan"
+    switch_datapoint: 60
+    speed_datapoint: 62
+    direction_datapoint: 63
+    speed_count: 6
+    restore_mode: ALWAYS_OFF
+
+# Create a light using the dimmer
+light:
+  - platform: "tuya"
+    id: light_01
+    name: "Livingroom Main Light"
+    switch_datapoint: 20
+    warm_white_color_temperature: 300 mireds #500 mireds
+    cold_white_color_temperature: 299 mireds #152 mireds
+    color_temperature_datapoint: 23
+    color_temperature_max_value: 1000.0
+    color_temperature_invert: false
+    max_value: 750
+    dimmer_datapoint: 22
+    restore_mode: ALWAYS_OFF
