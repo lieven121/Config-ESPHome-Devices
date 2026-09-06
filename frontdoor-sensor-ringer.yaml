@@ -1,11 +1,18 @@
 substitutions:
-  prefix: Frontdoor
-  device_name: frontdoor
+  device_prefix: frontdoor
+  device_name: "Frontdoor"
   device_description: "Custom pcb connected to frontdoor sensor and ringer"
+  device_ip: !secret frontdoor_ip
+  device_ota: !secret frontdoor_ota
+  device_key: !secret frontdoor_key
 
+  device_button_1: "Button"
+
+#region General Config
 esphome:
-  name: ${device_name}
+  name: ${device_prefix}
   comment: "${device_description}"
+  friendly_name: ${device_name}
   on_boot:
     priority: 600
     then: 
@@ -13,43 +20,37 @@ esphome:
         id(frontdoor_ringer).turn_off();
         id(button_1).publish_state("");
 
-
-esp8266:
-  board: esp12e
-  restore_from_flash: True
-
-# Enable logging
 logger:
 
-# Enable Home Assistant API
 api:
   encryption:
-    key: "ZTxIjbtNEJ99YBsvzyxTRZ51uNt4g3yXqWfgwXbHGD0="
+    key: ${device_key}
 
 ota:
   - platform: esphome
-    password: "qXXK2jVj8JQm29fk5PjAYyMr5UXApHmkw9kpvS"
-
+    password: ${device_ota}
 
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
   fast_connect: true
   manual_ip:
-    static_ip: !secret ip_frontdoor_sensor_ringer
+    static_ip: ${device_ip}
     gateway: 172.16.16.1
     subnet: 255.255.252.0
-
-  
-
-  # Enable fallback hotspot (captive portal) in case wifi connection fails
   ap:
-    ssid: "${prefix} Fallback Hotspot"
-    password: "HXmsApndTWUdW9SigvuKBvvHSDbsj"
+    ssid: "${device_name} AP"
+    password: ${device_ota}
 
 captive_portal:
-    
-    
+#endregion
+
+#Device
+esp8266:
+  board: esp12e
+  restore_from_flash: True
+
+#IO
 output:
   - platform: gpio
     id: frontdoor_ringer
@@ -71,7 +72,7 @@ button:
 
 binary_sensor:
   - platform: gpio
-    name: "${prefix} Sensor State"
+    name: "Sensor State"
     pin:
       number: GPIO12
       # number: GPIO15
@@ -86,7 +87,7 @@ binary_sensor:
   
   
   - platform: gpio
-    name: "${prefix} Button State"
+    name: "${device_button_1} State"
     pin: 
       number: GPIO13
       mode:
@@ -150,7 +151,7 @@ binary_sensor:
   - platform: status
     disabled_by_default: True
     id: home_assistant_online
-    name: "${prefix} Switch Connected"
+    name: "${device_name} Connected"
     on_state: 
       then:
         - lambda: |-
@@ -163,7 +164,7 @@ binary_sensor:
 
 text_sensor:
   - platform: template
-    name: '${prefix} Button action'
+    name: '${device_button_1} Action'
     id: button_1
     on_value: # When a state is set
       then:
@@ -180,7 +181,7 @@ text_sensor:
 
 select:
   - platform: template
-    name: "${prefix} Pysical Button Operating Mode"
+    name: "${device_button_1} Operating Mode"
     id: operating_mode_button
     entity_category: config
     optimistic: true
