@@ -1,0 +1,87 @@
+esphome:
+  name: attic_bedroom_main_light
+  platform: ESP8266
+  board: esp01_1m
+
+wifi:
+  ssid: "SmartHome_KR1"
+  password: "BN2544AR6Whc3SgYF8eWG694JmQtmyC5z2tvnYU5dpWSnTveMANZxp2Vu4WXv7"
+  fast_connect: true
+  manual_ip:
+    static_ip: 172.16.16.241
+    gateway: 172.16.16.1
+    subnet: 255.255.240.0
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Attic Bedroom Main"
+    password: "74564128681584568431684"
+
+captive_portal:
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+#api:
+#  password: "YWMyZWMzODdjNWU4YzgzZmRhMTJjYTg0OTdjZGM3NWFlZDdmMDFiMThiZDY1ZTk1"
+
+ota:
+  - platform: esphome
+    password: "YWMyZWMzODdjNWU4YzgzZmRhMTJjYTg0OTdjZGM3NWFlZDdmMDFiMThiZDY1ZTk1"
+
+mqtt: 
+  broker: 172.16.16.8
+
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: GPIO0
+      mode: INPUT_PULLUP
+      inverted: True
+    name: "Light Switch Manual Override"
+    on_press:
+      - switch.toggle: relay
+
+switch:
+  - platform: gpio
+    name: "Light Switch"
+    pin: GPIO12
+    id: relay
+
+status_led:
+  pin:
+    number: GPIO13
+    inverted: yes
+
+# light:
+#   - platform: rgbww
+#     name: "Main Lights Bedroom"
+#     red: red_channel
+#     green: green_channel
+#     blue: blue_channel
+#     cold_white: white_channel
+#     warm_white: warmwhite_channel
+#     cold_white_color_temperature: 6536 K
+#     warm_white_color_temperature: 2000 K
+# output:
+#   - platform: esp8266_pwm
+#     id: red_channel
+#     pin: D2
+#     max_power: 100%
+#   - platform: esp8266_pwm
+#     id: green_channel
+#     pin: D1
+#     max_power: 100%
+#   - platform: esp8266_pwm
+#     id: blue_channel
+#     pin: D7
+#     max_power: 100%
+#   - platform: esp8266_pwm
+#     id: white_channel
+#     pin: D5
+#     max_power: 100%
+#   - platform: esp8266_pwm
+#     id: warmwhite_channel
+#     pin: D6
+#     max_power: 100%
