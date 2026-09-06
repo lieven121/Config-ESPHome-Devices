@@ -1,58 +1,57 @@
 substitutions:
-  prefix: Bedroom Attic
-  device_name: bedroom-attic
+  device_prefix: bedroom-attic
+  device_name: "Bedroom Attic Light"
   device_description: "Shelly 1L connected to bedroom buttons and light on the attic floor"
+  device_ip: !secret bedroom_attic_ip
+  device_ota: !secret bedroom_attic_ota
+  device_key: !secret bedroom_attic_key
 
+  device_button_1: "Button 1"
+  device_button_2: "Button 2"
+
+#region General Config
 esphome:
-  name: ${device_name}
+  name: ${device_prefix}
   comment: "${device_description}"
+  friendly_name: ${device_name}
   on_boot:
     priority: 600
     then: 
       lambda: |-
         id(button_1).publish_state("");
         id(button_2).publish_state("");
-      # id(my_ota).set_auth_password("VKWK9AmUtkCU3GUyuuKE8L4kSAg4MbLBbHuUFBuDQmF2ZAuiHHNQgffzagfUErf");
 
-
-
-esp8266:
-  board: esp01_1m
-  restore_from_flash: True
-
-# Enable logging
 logger:
 
-# Enable Home Assistant API
 api:
   encryption:
-    key: "KoKkBX7SBoIc/u73uHfibjBxl0uBbrmVqvcwoQBHG94="
+    key: ${device_key}
 
 ota:
   - platform: esphome
-    password: "VKWK9AmUtkCU3GUyuuKE8L4kSAg4MbLBbHuUFBuDQmF2ZAuiHHNQgffzagfUErf"
-  # password: "empty-device-flashme"
-  # id: my_ota
+    password: ${device_ota}
 
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
   fast_connect: true
   manual_ip:
-    static_ip: !secret ip_bedroom-attic_light
+    static_ip: ${device_ip}
     gateway: 172.16.16.1
     subnet: 255.255.252.0
-  # use_address: 172.16.17.222
-  
-
-  # Enable fallback hotspot (captive portal) in case wifi connection fails
   ap:
-    ssid: "${prefix} Fallback Hotspot"
-    password: "A7KUHGbuzkqwcVRFD"
+    ssid: "${device_name} AP"
+    password: ${device_ota}
 
 captive_portal:
-    
-    
+#endregion
+
+#Device
+esp8266:
+  board: esp01_1m
+  restore_from_flash: True
+
+#IO
 status_led:
   pin:
     number: GPIO0
@@ -66,13 +65,13 @@ output:
 light:
   - platform: binary
     id: light_1
-    name: ${prefix} Light
+    name: None
     output: relay_1    
 
 binary_sensor:
     
   - platform: gpio
-    name: "${prefix} Button 1 State"
+    name: "${device_button_1} State"
     pin: 
       number: GPIO4
       # mode: INPUT_PULLUP
@@ -118,7 +117,7 @@ binary_sensor:
             id(button_1).publish_state("release");
 
   - platform: gpio
-    name: "${prefix} Button 2 State"
+    name: "${device_button_2} State"
     pin: 
       number: GPIO14
       # mode: INPUT_PULLUP
@@ -166,7 +165,7 @@ binary_sensor:
   - platform: status
     disabled_by_default: True
     id: home_assistant_online
-    name: "${prefix} Switch Connected"
+    name: "${device_name} Connected"
     on_state: 
       then:
         - lambda: |-
@@ -183,7 +182,7 @@ binary_sensor:
 
 text_sensor:
   - platform: template
-    name: '${prefix} Button 1 action'
+    name: '${device_button_1} Action'
     id: button_1
     on_value: # When a state is set
       then:
@@ -198,7 +197,7 @@ text_sensor:
                   id: button_1
                   state: !lambda 'return "";' # Reset to empty
   - platform: template
-    name: '${prefix} Button 2 action'
+    name: '${device_button_2} Action'
     id: button_2
     on_value: # When a state is set
       then:
@@ -215,7 +214,7 @@ text_sensor:
 
 select:
   - platform: template
-    name: "${prefix} Operating Mode SW1"
+    name: "${device_button_1} Operating Mode"
     id: operating_mode_1
     entity_category: config
     optimistic: true
@@ -229,7 +228,7 @@ select:
         - lambda: |-
             return;
   - platform: template
-    name: "${prefix} Operating Mode SW2"
+    name: "${device_button_2} Operating Mode"
     id: operating_mode_2
     entity_category: config
     optimistic: true
@@ -246,7 +245,8 @@ select:
 sensor:
   - platform: ntc
     sensor: temp_resistance_reading
-    name: ${device_name}_temperature
+    name: "Temperature"
+    entity_category: diagnostic
     unit_of_measurement: "°C"
     accuracy_decimals: 1
     icon: "mdi:thermometer"
