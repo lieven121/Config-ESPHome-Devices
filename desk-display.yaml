@@ -113,12 +113,18 @@ light:
       brightness: 100%
     restore_mode: ALWAYS_ON
 
-image:
-  - platform: file
-    file: "assets/fad/sun.svg"
-    type: GRAYSCALE
-    id: fad_sun
-    resize: 16x16
+# Material Design Icons (same set as Home Assistant) for glyphs LVGL's
+# built-in symbols don't have: weather-sunny, transmission-tower, car
+font:
+  - file:
+      type: web
+      url: https://raw.githubusercontent.com/Templarian/MaterialDesign-Webfont/master/fonts/materialdesignicons-webfont.ttf
+    id: mdi_16
+    size: 16
+    glyphs:
+      - "\U000F0599"
+      - "\U000F0D3E"
+      - "\U000F010B"
 
 #region Touch & navigation
 # Swipe left/right anywhere that isn't a control to change page.
@@ -251,6 +257,9 @@ sensor:
                 id: lbl_battery_power
                 text: !lambda 'return str_sprintf("+%.0f W", x);'
                 text_color: 0x4DB6AC
+            - lvgl.label.update:
+                id: lbl_battery_icon
+                text_color: 0x4DB6AC
             - lvgl.bar.update:
                 id: bar_battery
                 indicator:
@@ -259,6 +268,9 @@ sensor:
             - lvgl.label.update:
                 id: lbl_battery_power
                 text: !lambda 'return str_sprintf("-%.0f W", fabsf(x));'
+                text_color: 0xF06284
+            - lvgl.label.update:
+                id: lbl_battery_icon
                 text_color: 0xF06284
             - lvgl.bar.update:
                 id: bar_battery
@@ -277,6 +289,14 @@ sensor:
       - lvgl.bar.update:
           id: bar_battery
           value: !lambda return x;
+      - lvgl.label.update:
+          id: lbl_battery_icon
+          text: !lambda |-
+            if (x >= 90) return std::string(LV_SYMBOL_BATTERY_FULL);
+            if (x >= 65) return std::string(LV_SYMBOL_BATTERY_3);
+            if (x >= 40) return std::string(LV_SYMBOL_BATTERY_2);
+            if (x >= 15) return std::string(LV_SYMBOL_BATTERY_1);
+            return std::string(LV_SYMBOL_BATTERY_EMPTY);
       - lvgl.label.update:
           id: lbl_idle_battery
           text: !lambda 'return str_sprintf(LV_SYMBOL_BATTERY_3 " %.0f%%", x);'
@@ -448,7 +468,10 @@ script:
           then:
             - lvgl.label.update:
                 id: lbl_grid_power
-                text: !lambda 'return str_sprintf(LV_SYMBOL_UP " %.2f kW", id(grid_power_produced).state);'
+                text: !lambda 'float v = id(grid_power_produced).state; return str_sprintf(v >= 10 ? "%.1f kW" : "%.2f kW", v);'
+                text_color: 0xA280C4
+            - lvgl.label.update:
+                id: lbl_grid_icon
                 text_color: 0xA280C4
             - lvgl.label.update:
                 id: lbl_grid_sub
@@ -456,7 +479,10 @@ script:
           else:
             - lvgl.label.update:
                 id: lbl_grid_power
-                text: !lambda 'return str_sprintf(LV_SYMBOL_DOWN " %.2f kW", id(grid_power_consumed).state);'
+                text: !lambda 'float v = id(grid_power_consumed).state; return str_sprintf(v >= 10 ? "%.1f kW" : "%.2f kW", v);'
+                text_color: 0x5AA3D8
+            - lvgl.label.update:
+                id: lbl_grid_icon
                 text_color: 0x5AA3D8
             - lvgl.label.update:
                 id: lbl_grid_sub
@@ -540,14 +566,15 @@ lvgl:
 
   style_definitions:
     - id: tile
-      bg_color: 0x16181C
+      bg_color: 0x0C0D10
       bg_opa: COVER
+      text_color: 0xFFFFFF
       border_width: 0
       shadow_width: 0
       radius: 10
       pad_all: 8
     - id: flat_btn
-      bg_color: 0x16181C
+      bg_color: 0x0C0D10
       bg_opa: COVER
       border_width: 0
       shadow_width: 0
@@ -596,10 +623,12 @@ lvgl:
             styles: tile
             scrollable: false
             widgets:
-              - image:
-                  src: fad_sun
+              - label:
                   x: 0
                   y: 0
+                  text: "\U000F0599"
+                  text_font: mdi_16
+                  text_color: 0xFFD600
               - label:
                   x: 20
                   y: 1
@@ -627,7 +656,14 @@ lvgl:
             scrollable: false
             widgets:
               - label:
+                  id: lbl_grid_icon
                   x: 0
+                  y: 0
+                  text: "\U000F0D3E"
+                  text_font: mdi_16
+                  text_color: 0x5AA3D8
+              - label:
+                  x: 20
                   y: 1
                   text: "Grid"
                   styles: muted
@@ -654,15 +690,16 @@ lvgl:
             scrollable: false
             widgets:
               - label:
+                  id: lbl_battery_icon
                   x: 0
                   y: 1
-                  text: " Battery"
-                  styles: muted
+                  text: ""
+                  text_color: 0x4DB6AC
               - label:
-                  id: lbl_battery_pct
-                  align: TOP_RIGHT
+                  x: 20
                   y: 1
-                  text: "--%"
+                  text: "Battery"
+                  styles: muted
               - label:
                   id: lbl_battery_power
                   x: 0
@@ -672,7 +709,8 @@ lvgl:
               - bar:
                   id: bar_battery
                   align: BOTTOM_LEFT
-                  width: 91
+                  y: -4
+                  width: 62
                   height: 4
                   min_value: 0
                   max_value: 100
@@ -683,6 +721,11 @@ lvgl:
                   indicator:
                     bg_color: 0x4DB6AC
                     radius: 2
+              - label:
+                  id: lbl_battery_pct
+                  align: BOTTOM_RIGHT
+                  text: "--%"
+                  text_font: montserrat_12
 
         # Charger
         - obj:
@@ -695,8 +738,13 @@ lvgl:
             widgets:
               - label:
                   x: 0
+                  y: 0
+                  text: "\U000F010B"
+                  text_font: mdi_16
+              - label:
+                  x: 20
                   y: 1
-                  text: " Charger"
+                  text: "Charger"
                   styles: muted
               - label:
                   id: lbl_ev_power
@@ -927,7 +975,7 @@ lvgl:
             min_value: 1
             max_value: 100
             value: 50
-            bg_color: 0x16181C
+            bg_color: 0x0C0D10
             bg_opa: COVER
             radius: 10
             indicator:
