@@ -104,7 +104,7 @@ binary_sensor:
         then:
           - logger.log: "${device_button_1}: Click"
           - lambda: |-
-              if(id(operating_mode).current_option() == "Decoupled") return;
+              if(id(operating_mode).current_option() == std::string("Decoupled")) return;
               auto call_sink = id(cupboard_light_sink).toggle();
               call_sink.perform();
               auto call_cooktop = id(cupboard_light_cooktop).toggle();

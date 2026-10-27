@@ -93,7 +93,7 @@ binary_sensor:
           - OFF for at least 300ms
         then:
           - lambda: |-
-              if(id(operating_mode).state == "Decoupled") return;
+              if(id(operating_mode).current_option() == std::string("Decoupled")) return;
               auto call = id(light_1).toggle();
               call.perform();
           - text_sensor.template.publish:

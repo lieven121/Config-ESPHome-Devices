@@ -91,7 +91,7 @@ binary_sensor:
         then:
           - logger.log: "${device_button_1}: Click"
           - lambda: |-
-              if(id(operating_mode).state == "Decoupled") return;
+              if(id(operating_mode).current_option() == std::string("Decoupled")) return;
               id(switch_1).toggle();
           - lambda: |-
               id(button_event).trigger("click");

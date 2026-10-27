@@ -103,7 +103,7 @@ binary_sensor:
     on_press:
       then:
           - lambda: |-
-              if(id(operating_mode_button).state == "Decoupled") return;
+              if(id(operating_mode_button).current_option() == std::string("Decoupled")) return;
               id(software_doorbell_press).press();
           - text_sensor.template.publish:
               id: button_1
@@ -116,7 +116,7 @@ binary_sensor:
       #     #- OFF for at least 300ms
       #   then:
       #     # - lambda: |-
-      #     #     if(id(operating_mode_button).state == "Decoupled") return;
+      #     #     if(id(operating_mode_button).current_option() == std::string("Decoupled")) return;
       #     #     id(software_doorbell_press).press();
       #     - text_sensor.template.publish:
       #         id: button_1
@@ -128,7 +128,7 @@ binary_sensor:
           - OFF for at least 400ms
         then:
           # - lambda: |-
-          #     if(id(operating_mode_button).state == "Decoupled") return;
+          #     if(id(operating_mode_button).current_option() == std::string("Decoupled")) return;
           #     id(software_doorbell_press).press();
           - text_sensor.template.publish:
               id: button_1
@@ -137,7 +137,7 @@ binary_sensor:
           - ON for at least 500ms
         then:
           # - lambda: |-
-          #     if(id(operating_mode_button).state == "Decoupled") return;
+          #     if(id(operating_mode_button).current_option() == std::string("Decoupled")) return;
           #     id(software_doorbell_press).press();
           - text_sensor.template.publish:
               id: button_1
