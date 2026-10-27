@@ -74,7 +74,7 @@ i2c:
 spi:
   clk_pin: GPIO04
   mosi_pin: GPIO02
-  id: spi0
+  id: spi_bus
 
 display:
   - platform: ili9xxx
@@ -114,7 +114,8 @@ light:
     restore_mode: ALWAYS_ON
 
 image:
-  - file: "assets/fad/sun.svg"
+  - platform: file
+    file: "assets/fad/sun.svg"
     type: GRAYSCALE
     id: fad_sun
     resize: 16x16
