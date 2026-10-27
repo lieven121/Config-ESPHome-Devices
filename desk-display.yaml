@@ -983,8 +983,10 @@ lvgl:
             knob:
               bg_color: 0xFFFFFF
               radius: 4
-              pad_hor: -14
-              pad_ver: -4
+              pad_left: -14
+              pad_right: -14
+              pad_top: -4
+              pad_bottom: -4
               border_width: 2
               border_color: 0x000000
             disabled:
