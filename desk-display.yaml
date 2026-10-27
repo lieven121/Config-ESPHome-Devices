@@ -6,6 +6,10 @@ substitutions:
   device_ota: !secret desk_display_ota
   device_key: !secret desk_display_key
 
+  office_light: light.home_office_ceiling_light
+  idle_timeout: 60s
+  idle_brightness: 15%
+
 #region General Config
 esphome:
   name: ${device_prefix}
@@ -15,35 +19,16 @@ esphome:
     priority: 600
     then:
       - lvgl.page.show: home
-  #     - script.execute: draw_display
 
 logger:
 
 api:
   encryption:
     key: ${device_key}
-#   on_client_connected:
-    # - script.execute: draw_display
-#   on_client_disconnected:
-    # - script.execute: draw_display
 
 ota:
   - platform: esphome
     password: ${device_ota}
-    # on_begin:
-    #   then:
-    #     - logger.log: "OTA start a"
-    #     - lvgl.widget.hide: root
-    #     - lvgl.widget.show: popup_obj
-    #     - lvgl.resume:
-    #     - lvgl.widget.redraw:
-    #     - logger.log: "OTA start b"
-    # on_progress:
-    #   then:
-    #     - lvgl.bar.update:
-    #         id: lv_bar
-    #         value: !lambda "return (int)x;"
-    #     - lambda: "id(lv_id).loop();"
 
 wifi:
   ssid: !secret wifi_ssid
@@ -69,6 +54,11 @@ esp32:
     type: esp-idf
     version: recommended
 
+# https://community.home-assistant.io/t/low-cost-esp32-voice-platforms/864438/18
+# https://spotpear.com/wiki/ESP32-S3-AI-1.54-inch-LCD-Display-TouchScreen-N16R8-muma-DeepSeek.html
+# https://github.com/RyanEwen/esphome-lvgl/tree/main
+# https://gist.github.com/clydebarrow/ef89e9a93bd44771483b9144ae9042a1
+
 #IO
 button:
   - platform: factory_reset
@@ -81,44 +71,10 @@ i2c:
   scan: true
   id: bus_a
 
-touchscreen:
-  - platform: cst816
-    i2c_id: bus_a
-    interrupt_pin: GPIO12
-    reset_pin: GPIO06
-    id: my_touchscreen
-    on_touch:
-      - logger.log:
-          format: "Touch at (%d, %d)"
-          args: [touch.x, touch.y]
-
-# https://community.home-assistant.io/t/low-cost-esp32-voice-platforms/864438/18
-# https://spotpear.com/wiki/ESP32-S3-AI-1.54-inch-LCD-Display-TouchScreen-N16R8-muma-DeepSeek.html
-# https://github.com/RyanEwen/esphome-lvgl/tree/main
-# https://gist.github.com/clydebarrow/ef89e9a93bd44771483b9144ae9042a1
-
-# swipe
-# https://community.home-assistant.io/t/esp32-s3-box-3-as-bedside-clock-with-lvgl-swipe/835084
 spi:
-  clk_pin: GPIO04 #14
-  mosi_pin: GPIO02 #17
-    # interface: hardware
+  clk_pin: GPIO04
+  mosi_pin: GPIO02
   id: spi0
-
-# display:
-#   - platform: st7789v
-#     model: "Adafruit Funhouse 240x240"
-#     spi_id: spi0
-#     cs_pin: GPIO05
-#     dc_pin: GPIO47
-#     reset_pin: GPIO14
-#     rotation: 0
-#     width: 240
-#     height: 240
-#     # color_order: BGR
-#     # invert_colors: false
-#     backlight_pin: GPIO21
-#     update_interval: 1s
 
 display:
   - platform: ili9xxx
@@ -141,54 +97,101 @@ display:
     reset_pin: GPIO14
     auto_clear_enabled: false
     update_interval: never
-    # lambda: |-
-    #   auto touch = id(my_touchscreen)->get_touch();
-    #   if (touch) // or touch.has_value()
-    #     it.fill(id(red));
-    #     it.filled_circle(touch.value().x, touch.value().y, 10, Color::BLACK);
-    # pages:
-    #   - id: idle_page
-    #     lambda: |-
-    #       // it.fill(Color::BLACK);
-    #       // it.fill(id(idle_color));
-    #       it.fill(id(red));
-    #       // it.image((it.get_width() / 2), (it.get_height() / 2), id(casita_idle), ImageAlign::CENTER);
-    #       // id(draw_timer_timeline).execute();
-    #       // id(draw_active_timer_widget).execute();
 
-image:
-  - file: "assets/fad/sun.svg"
-    type: GRAYSCALE
-    id: fad_sun
-    resize: 24x24
-
-# Define a PWM output on the ESP32
 output:
   - platform: ledc
     pin: GPIO42
     id: backlight_pwm
     inverted: True
-    #why does the display turn on to then dimm on again
 
-# Define a monochromatic, dimmable light for the backlight
 light:
   - platform: monochromatic
     output: backlight_pwm
     name: "Backlight"
     id: back_light
-    initial_state: 
-      brightness: 100% 
+    initial_state:
+      brightness: 100%
     restore_mode: ALWAYS_ON
 
-# color:
-#   - id: red
-#     red: 100%
-#     green: 0%
-#     blue: 0%
-color:
-  - id: bg_color
-    hex: '000000'
+image:
+  - file: "assets/fad/sun.svg"
+    type: GRAYSCALE
+    id: fad_sun
+    resize: 16x16
 
+#region Touch & navigation
+# Swipe left/right anywhere that isn't a control to change page.
+# Touching while the idle page is shown wakes the display back to the home page.
+globals:
+  - id: touch_start_x
+    type: int
+    initial_value: "0"
+  - id: touch_last_x
+    type: int
+    initial_value: "0"
+  - id: swipe_block
+    type: bool
+    initial_value: "false"
+  - id: is_idle
+    type: bool
+    initial_value: "false"
+
+touchscreen:
+  - platform: cst816
+    i2c_id: bus_a
+    interrupt_pin: GPIO12
+    reset_pin: GPIO06
+    id: my_touchscreen
+    on_touch:
+      - lambda: |-
+          id(touch_start_x) = touch.x;
+          id(touch_last_x) = touch.x;
+          id(swipe_block) = false;
+      - if:
+          condition:
+            lambda: return id(is_idle);
+          then:
+            - globals.set:
+                id: is_idle
+                value: "false"
+            - globals.set:
+                id: swipe_block
+                value: "true"
+            - light.turn_on:
+                id: back_light
+                brightness: 100%
+            - lvgl.page.show: home
+    on_update:
+      - lambda: |-
+          for (auto &t : touches)
+            id(touch_last_x) = t.x;
+    on_release:
+      - if:
+          condition:
+            lambda: return !id(swipe_block) && id(touch_last_x) - id(touch_start_x) < -60;
+          then:
+            - lvgl.page.next:
+                animation: MOVE_LEFT
+                time: 250ms
+      - if:
+          condition:
+            lambda: return !id(swipe_block) && id(touch_last_x) - id(touch_start_x) > 60;
+          then:
+            - lvgl.page.previous:
+                animation: MOVE_RIGHT
+                time: 250ms
+#endregion
+
+#region Home Assistant data
+time:
+  - platform: homeassistant
+    id: ha_time
+    on_time_sync:
+      - script.execute: update_clock
+    on_time:
+      - seconds: 0
+        then:
+          - script.execute: update_clock
 
 sensor:
   - platform: homeassistant
@@ -197,9 +200,10 @@ sensor:
     on_value:
       - lvgl.label.update:
           id: lbl_solar_power
-          text:
-            format: "#FFEA00 %.1fW #"
-            args: [ 'x' ]
+          text: !lambda 'return fabsf(x) >= 1000 ? str_sprintf("%.2f kW", x / 1000) : str_sprintf("%.0f W", x);'
+      - lvgl.label.update:
+          id: lbl_idle_solar
+          text: !lambda 'return fabsf(x) >= 1000 ? str_sprintf("%.2f kW", x / 1000) : str_sprintf("%.0f W", x);'
 
   - platform: homeassistant
     id: home_power
@@ -207,37 +211,22 @@ sensor:
     on_value:
       - lvgl.label.update:
           id: lbl_home_power
-          text:
-            format: "#FFFFFF %.1fW #"
-            args: [ 'x' ]
+          text: !lambda 'return fabsf(x) >= 1000 ? str_sprintf("%.2f kW", x / 1000) : str_sprintf("%.0f W", x);'
+      - lvgl.label.update:
+          id: lbl_idle_home
+          text: !lambda 'return str_sprintf(LV_SYMBOL_HOME " %.2f kW", x / 1000);'
 
   - platform: homeassistant
     id: grid_power_consumed
     entity_id: sensor.power_consumed
     on_value:
-      - if:
-          condition:
-            lambda: 'return x >= 0.001;'
-          then:
-          - lvgl.label.update:
-              id: lbl_grid_power
-              text:
-                format: "#488FC2 %.3fkW #"
-                args: [ 'x' ]
+      - script.execute: update_grid
 
   - platform: homeassistant
     id: grid_power_produced
     entity_id: sensor.power_produced
     on_value:
-      - if:
-          condition:
-            lambda: 'return x >= 0.001;'
-          then:
-            - lvgl.label.update:
-                id: lbl_grid_power
-                text:
-                  format: "#A280C4 %.3fkW #"
-                  args: [ 'x' ]
+      - script.execute: update_grid
 
   - platform: homeassistant
     id: grid_car_power
@@ -245,10 +234,10 @@ sensor:
     on_value:
       - lvgl.label.update:
           id: lbl_ev_power
-          text:
-            format: "#FFFFFF %.1fW #"
-            args: [ 'x' ]
+          text: !lambda 'return fabsf(x) >= 1000 ? str_sprintf("%.2f kW", x / 1000) : str_sprintf("%.0f W", x);'
+      - script.execute: update_charger
 
+  # Positive = charging (teal), negative = discharging (pink)
   - platform: homeassistant
     id: grid_battery_power
     entity_id: sensor.sonnenbatterie_213526_state_battery_inout
@@ -259,18 +248,22 @@ sensor:
           then:
             - lvgl.label.update:
                 id: lbl_battery_power
-                text:
-                  format: "#4db6ac %.1fW #"
-                  args: [ 'x' ]
+                text: !lambda 'return str_sprintf("+%.0f W", x);'
+                text_color: 0x4DB6AC
+            - lvgl.bar.update:
+                id: bar_battery
+                indicator:
+                  bg_color: 0x4DB6AC
           else:
-            #set x to abs
-            - lambda: 'x = abs(x);'
             - lvgl.label.update:
                 id: lbl_battery_power
-                text:
-                  format: "#f06284 %.1fW #"
-                  args: [ 'x' ]
-  
+                text: !lambda 'return str_sprintf("-%.0f W", fabsf(x));'
+                text_color: 0xF06284
+            - lvgl.bar.update:
+                id: bar_battery
+                indicator:
+                  bg_color: 0xF06284
+
   - platform: homeassistant
     id: grid_battery_pct
     entity_id: sensor.sonnenbatterie_213526_state_charge_user
@@ -278,53 +271,103 @@ sensor:
       - lvgl.label.update:
           id: lbl_battery_pct
           text:
-            format: "#FFFFFF %.0f%% #"
+            format: "%.0f%%"
             args: [ 'x' ]
+      - lvgl.bar.update:
+          id: bar_battery
+          value: !lambda return x;
+      - lvgl.label.update:
+          id: lbl_idle_battery
+          text: !lambda 'return str_sprintf(LV_SYMBOL_BATTERY_3 " %.0f%%", x);'
 
   - platform: homeassistant
     id: car_xc40_pct
     entity_id: sensor.volvo_xc40_battery
     on_value:
+      - lvgl.arc.update:
+          id: arc_xc40
+          value: !lambda return x;
       - lvgl.label.update:
           id: lbl_xc40_battery_pct
           text:
-            format: "#FFFFFF %.0f%% #"
+            format: "%.0f%%"
             args: [ 'x' ]
+      - if:
+          condition:
+            lambda: 'return x < 20;'
+          then:
+            - lvgl.arc.update:
+                id: arc_xc40
+                indicator:
+                  arc_color: 0xF06284
+          else:
+            - lvgl.arc.update:
+                id: arc_xc40
+                indicator:
+                  arc_color: 0x4DB6AC
 
   - platform: homeassistant
     id: car_twingo_pct
     entity_id: sensor.twingo_battery_level
     on_value:
+      - lvgl.arc.update:
+          id: arc_twingo
+          value: !lambda return x;
       - lvgl.label.update:
           id: lbl_twingo_battery_pct
           text:
-            format: "#FFFFFF %.0f%% #"
+            format: "%.0f%%"
             args: [ 'x' ]
+      - if:
+          condition:
+            lambda: 'return x < 20;'
+          then:
+            - lvgl.arc.update:
+                id: arc_twingo
+                indicator:
+                  arc_color: 0xF06284
+          else:
+            - lvgl.arc.update:
+                id: arc_twingo
+                indicator:
+                  arc_color: 0x4DB6AC
 
-  
-      # - if:
-      #     condition:
-      #       lambda: 'return x > 0;'
-      #     then:
-      #       - lvgl.label.update:
-      #           id: lbl_battery_power
-      #           text:
-      #             format: "#4db6ac %.1fW #"
-      #             args: [ 'x' ]
-      #     else:
-      #       - lvgl.label.update:
-      #           id: lbl_battery_power
-      #           text:
-      #             format: "#f06284 %.1fW #"
-      #             args: [ 'x' ]
+  # Office light attributes are unavailable (NaN) while the light is off
+  - platform: homeassistant
+    id: office_light_brightness
+    entity_id: ${office_light}
+    attribute: brightness
+    on_value:
+      - if:
+          condition:
+            lambda: return !isnan(x);
+          then:
+            - lvgl.slider.update:
+                id: sl_bri
+                value: !lambda return x / 2.55f;
+            - lvgl.label.update:
+                id: lbl_bri
+                text:
+                  format: "%.0f%%"
+                  args: [ 'x / 2.55f' ]
 
-
-    # on_value:
-    #   - lvgl.label.update:
-    #       id: lbl_grid_power_produced
-    #       text:
-    #         format: "#FFFFFF %.1fW #"
-    #         args: [ 'x' ]
+  - platform: homeassistant
+    id: office_light_kelvin
+    entity_id: ${office_light}
+    attribute: color_temp_kelvin
+    on_value:
+      - if:
+          condition:
+            lambda: return !isnan(x);
+          then:
+            - lvgl.slider.update:
+                id: sl_cct
+                value: !lambda return x;
+            - lvgl.label.update:
+                id: lbl_cct
+                text:
+                  format: "%.0f K"
+                  args: [ 'x' ]
 
 binary_sensor:
   - platform: homeassistant
@@ -332,166 +375,749 @@ binary_sensor:
     entity_id: input_boolean.smappee_charge
     on_state:
       - lvgl.widget.update:
+          id: ev_btn
+          state:
+            checked: !lambda return x;
+      - lvgl.widget.update:
           id: ev_switch
           state:
             checked: !lambda return x;
+      - script.execute: update_charger
 
-# script:
-#   - id: draw_display
-#     then:
-#       - lambda: |
-#               id(lcd).update();
-        # id(lcd).show_page(idle_page);
+text_sensor:
+  - platform: homeassistant
+    id: office_light_state
+    entity_id: ${office_light}
+    on_value:
+      - if:
+          condition:
+            lambda: return x == "on";
+          then:
+            - lvgl.label.update:
+                id: lbl_light_state
+                text: "On"
+                text_color: 0xFFD9A0
+            - lvgl.widget.update:
+                id: btn_light_power
+                state:
+                  checked: true
+            - script.execute:
+                id: set_light_controls
+                enabled: true
+          else:
+            - lvgl.label.update:
+                id: lbl_light_state
+                text: "Off"
+                text_color: 0x9AA0A6
+            - lvgl.widget.update:
+                id: btn_light_power
+                state:
+                  checked: false
+            - script.execute:
+                id: set_light_controls
+                enabled: false
+#endregion
 
+#region UI scripts
+script:
+  - id: update_clock
+    then:
+      - lvgl.label.update:
+          id: lbl_clock_home
+          text: !lambda return id(ha_time).now().strftime("%H:%M");
+      - lvgl.label.update:
+          id: lbl_clock_cars
+          text: !lambda return id(ha_time).now().strftime("%H:%M");
+      - lvgl.label.update:
+          id: lbl_clock_light
+          text: !lambda return id(ha_time).now().strftime("%H:%M");
+      - lvgl.label.update:
+          id: lbl_idle_time
+          text: !lambda return id(ha_time).now().strftime("%H:%M");
+      - lvgl.label.update:
+          id: lbl_idle_date
+          text: !lambda return id(ha_time).now().strftime("%A %d %B");
+
+  # Grid sensors are in kW; show whichever direction is active
+  - id: update_grid
+    then:
+      - if:
+          condition:
+            lambda: return id(grid_power_produced).state > id(grid_power_consumed).state;
+          then:
+            - lvgl.label.update:
+                id: lbl_grid_power
+                text: !lambda 'return str_sprintf(LV_SYMBOL_UP " %.2f kW", id(grid_power_produced).state);'
+                text_color: 0xA280C4
+            - lvgl.label.update:
+                id: lbl_grid_sub
+                text: "exporting"
+          else:
+            - lvgl.label.update:
+                id: lbl_grid_power
+                text: !lambda 'return str_sprintf(LV_SYMBOL_DOWN " %.2f kW", id(grid_power_consumed).state);'
+                text_color: 0x5AA3D8
+            - lvgl.label.update:
+                id: lbl_grid_sub
+                text: "importing"
+
+  - id: update_charger
+    then:
+      - if:
+          condition:
+            lambda: return id(grid_car_power).state > 50;
+          then:
+            - lvgl.label.update:
+                id: lbl_ev_sub
+                text: "charging"
+                text_color: 0x4DB6AC
+          else:
+            - lvgl.label.update:
+                id: lbl_ev_sub
+                text: "idle"
+                text_color: 0x9AA0A6
+      - lvgl.label.update:
+          id: lbl_charge_line
+          text: !lambda |-
+            if (!id(car_charger).state) return std::string("Off");
+            return str_sprintf("On - %.2f kW", id(grid_car_power).state / 1000);
+
+  - id: set_light_controls
+    parameters:
+      enabled: bool
+    then:
+      - lvgl.widget.update:
+          id: sl_bri
+          state:
+            disabled: !lambda return !enabled;
+      - lvgl.widget.update:
+          id: sl_cct
+          state:
+            disabled: !lambda return !enabled;
+      - lvgl.widget.update:
+          id: btn_warm
+          state:
+            disabled: !lambda return !enabled;
+      - lvgl.widget.update:
+          id: btn_neutral
+          state:
+            disabled: !lambda return !enabled;
+      - lvgl.widget.update:
+          id: btn_focus
+          state:
+            disabled: !lambda return !enabled;
+#endregion
+
+#region LVGL UI
+# Layout follows the 240x240 mockup 1:1 (x/y are pixels)
 lvgl:
   buffer_size: 25%
   displays:
     - lcd
   touchscreens:
     - my_touchscreen
-  bg_color: black
-  
-  
-  pages:
-    - id: home
-      # root: true
-      bg_color: bg_color
-      widgets:
+  bg_color: 0x000000
+  page_wrap: true
 
-        - image:
-            id: lbl_solar_power_icon
-            src: fad_sun
+  on_idle:
+    timeout: ${idle_timeout}
+    then:
+      - if:
+          condition:
+            lambda: return !id(is_idle);
+          then:
+            - globals.set:
+                id: is_idle
+                value: "true"
+            - lvgl.page.show:
+                id: idle_page
+                animation: FADE_IN
+                time: 400ms
+            - light.turn_on:
+                id: back_light
+                brightness: ${idle_brightness}
+
+  style_definitions:
+    - id: tile
+      bg_color: 0x16181C
+      bg_opa: COVER
+      border_width: 0
+      shadow_width: 0
+      radius: 10
+      pad_all: 8
+    - id: flat_btn
+      bg_color: 0x16181C
+      bg_opa: COVER
+      border_width: 0
+      shadow_width: 0
+      radius: 8
+      pad_all: 0
+      text_color: 0xFFFFFF
+    - id: muted
+      text_color: 0x9AA0A6
+    - id: caption
+      text_color: 0x9AA0A6
+      text_font: montserrat_10
+      text_letter_space: 1
+
+  pages:
+    #--- 1 · Energy ---------------------------------------------------------
+    - id: home
+      bg_color: 0x000000
+      text_color: 0xFFFFFF
+      scrollbar_mode: "OFF"
+      widgets:
+        - label:
             x: 10
             y: 10
-            # image_recolor: "0XFFEA00"
-            # image_recolor_opa: COVER
-        - label:
-            id: lbl_solar_power
-            text: "~W"
-            x: 40
-            y: 10
-            recolor: true
-
+            text: "HOME"
+            styles: caption
         - label:
             id: lbl_home_power
-            text: "~W"
-            x: 150
-            y: 10
-            recolor: true
-            # icon: "mdi:home"
-            # icon_color: "#E0E0E0"
-
-
-            
-        - label:
-            id: lbl_grid_power
-            text: "~W"
-            x: 40
-            y: 40
-            recolor: true
-            # "#2196F3"
-            # text_font: "lv_font_montserrat_20"
-            # icon: "mdi:transmission-tower"
-            # icon_color: "#2196F3"
-        - label:
-            id: lbl_battery_power
-            text: "~W"
-            x: 150
-            y: 40
-            recolor: true
-            # "#E040FB"
-            # text_font: "lv_font_montserrat_20"
-            # icon: "mdi:battery"
-            # icon_color: "#43FF43"
-        # - bar:
-        #     id: battery_bar
-        #     x: 150
-        #     y: 90
-        #     width: 60
-        #     height: 10
-        #     value: 77
-        #     range: [0, 100]
-        #     color: "#43FF43"
-        - label:
-            id: lbl_battery_pct
-            text: "~%"
-            x: 125
-            y: 55
-            recolor: true
-            text_font: montserrat_12
-
-        - label:
-            id: lbl_xc40
-            text: "#FFFFFF XC40 #"
             x: 10
-            y: 120
-            recolor: true
+            y: 24
+            text: "-- W"
+            text_font: montserrat_28
+        - label:
+            id: lbl_clock_home
+            align: TOP_RIGHT
+            x: -10
+            y: 10
+            text: "--:--"
+            styles: muted
 
-            # "#FFFFFF"
-        #     text_font: "lv_font_montserrat_18"
-        # # - icon:
-        # #     id: icon_xc40
-        #     icon: "mdi:car"
-        #     x: 10
-        #     y: 135
-        #     color: "#2196F3"
-        #     size: 32
-        - label:
-            id: lbl_xc40_battery_pct
-            text: "~%"
-            x: 18
-            y: 180
-            recolor: true
-            # "#FFFFFF"
-        #     text_font: "lv_font_montserrat_14"
+        # Solar
+        - obj:
+            x: 10
+            y: 68
+            width: 107
+            height: 74
+            styles: tile
+            scrollable: false
+            widgets:
+              - image:
+                  src: fad_sun
+                  x: 0
+                  y: 0
+              - label:
+                  x: 20
+                  y: 1
+                  text: "Solar"
+                  styles: muted
+              - label:
+                  id: lbl_solar_power
+                  x: 0
+                  y: 18
+                  text: "-- W"
+                  text_font: montserrat_20
+                  text_color: 0xFFD600
+              - label:
+                  align: BOTTOM_LEFT
+                  text: "producing"
+                  styles: caption
+
+        # Grid
+        - obj:
+            x: 123
+            y: 68
+            width: 107
+            height: 74
+            styles: tile
+            scrollable: false
+            widgets:
+              - label:
+                  x: 0
+                  y: 1
+                  text: "Grid"
+                  styles: muted
+              - label:
+                  id: lbl_grid_power
+                  x: 0
+                  y: 18
+                  text: "--"
+                  text_font: montserrat_20
+                  text_color: 0x5AA3D8
+              - label:
+                  id: lbl_grid_sub
+                  align: BOTTOM_LEFT
+                  text: ""
+                  styles: caption
+
+        # Battery
+        - obj:
+            x: 10
+            y: 148
+            width: 107
+            height: 74
+            styles: tile
+            scrollable: false
+            widgets:
+              - label:
+                  x: 0
+                  y: 1
+                  text: " Battery"
+                  styles: muted
+              - label:
+                  id: lbl_battery_pct
+                  align: TOP_RIGHT
+                  y: 1
+                  text: "--%"
+              - label:
+                  id: lbl_battery_power
+                  x: 0
+                  y: 18
+                  text: "-- W"
+                  text_font: montserrat_20
+              - bar:
+                  id: bar_battery
+                  align: BOTTOM_LEFT
+                  width: 91
+                  height: 4
+                  min_value: 0
+                  max_value: 100
+                  value: 0
+                  bg_color: 0x2A2D33
+                  bg_opa: COVER
+                  radius: 2
+                  indicator:
+                    bg_color: 0x4DB6AC
+                    radius: 2
+
+        # Charger
+        - obj:
+            x: 123
+            y: 148
+            width: 107
+            height: 74
+            styles: tile
+            scrollable: false
+            widgets:
+              - label:
+                  x: 0
+                  y: 1
+                  text: " Charger"
+                  styles: muted
+              - label:
+                  id: lbl_ev_power
+                  x: 0
+                  y: 18
+                  text: "-- W"
+                  text_font: montserrat_20
+              - label:
+                  id: lbl_ev_sub
+                  align: BOTTOM_LEFT
+                  text: ""
+                  styles: caption
 
         - label:
-            id: lbl_twingo
-            text: "#FFFFFF Twingo #"
-            x: 90
-            y: 120
+            align: BOTTOM_MID
+            y: 2
             recolor: true
-            # "#FFFFFF"
-        #     text_font: "lv_font_montserrat_18"
-        # # - icon:
-        # #     id: icon_twingo
-        #     icon: "mdi:car"
-        #     x: 90
-        #     y: 135
-        #     color: "#2196F3"
-        #     size: 32
-        - label:
-            id: lbl_twingo_battery_pct
-            text: "~%"
-            x: 98
-            y: 180
-            recolor: True
+            text: "#FFFFFF •# #4A4D55 • •#"
 
-        #     text_font: "lv_font_montserrat_14"
-        # # - icon:
-        # #     id: icon_ev
-        #     icon: "mdi:ev-station"
-        #     x: 170
-        #     y: 150
-        #     color: "#2196F3"
-        #     size: 32
+    #--- 2 · Cars & charging ------------------------------------------------
+    - id: cars
+      bg_color: 0x000000
+      text_color: 0xFFFFFF
+      scrollbar_mode: "OFF"
+      widgets:
         - label:
-            id: lbl_ev_power
-            text: "~W"
-            x: 170
-            y: 180
-            recolor: true
-            # "#FFFFFF"
-        #     text_font: "lv_font_montserrat_14"
-        - switch:
-            id: ev_switch
-            x: 170
-            y: 145
-            # state: true
-            # recolor: true
-            # "#00C800"
+            x: 10
+            y: 10
+            text: "CARS"
+            styles: caption
+        - label:
+            id: lbl_clock_cars
+            align: TOP_RIGHT
+            x: -10
+            y: 8
+            text: "--:--"
+            styles: muted
+
+        - obj:
+            x: 10
+            y: 34
+            width: 107
+            height: 118
+            styles: tile
+            pad_all: 0
+            scrollable: false
+            widgets:
+              - arc:
+                  id: arc_xc40
+                  align: TOP_MID
+                  y: 8
+                  width: 84
+                  height: 84
+                  min_value: 0
+                  max_value: 100
+                  value: 0
+                  adjustable: false
+                  arc_width: 8
+                  arc_color: 0x2A2D33
+                  arc_rounded: true
+                  indicator:
+                    arc_width: 8
+                    arc_color: 0x4DB6AC
+                    arc_rounded: true
+              - label:
+                  id: lbl_xc40_battery_pct
+                  align: TOP_MID
+                  y: 39
+                  text: "--%"
+                  text_font: montserrat_20
+              - label:
+                  align: BOTTOM_MID
+                  y: -8
+                  text: "XC40"
+
+        - obj:
+            x: 123
+            y: 34
+            width: 107
+            height: 118
+            styles: tile
+            pad_all: 0
+            scrollable: false
+            widgets:
+              - arc:
+                  id: arc_twingo
+                  align: TOP_MID
+                  y: 8
+                  width: 84
+                  height: 84
+                  min_value: 0
+                  max_value: 100
+                  value: 0
+                  adjustable: false
+                  arc_width: 8
+                  arc_color: 0x2A2D33
+                  arc_rounded: true
+                  indicator:
+                    arc_width: 8
+                    arc_color: 0x4DB6AC
+                    arc_rounded: true
+              - label:
+                  id: lbl_twingo_battery_pct
+                  align: TOP_MID
+                  y: 39
+                  text: "--%"
+                  text_font: montserrat_20
+              - label:
+                  align: BOTTOM_MID
+                  y: -8
+                  text: "Twingo"
+
+        - button:
+            id: ev_btn
+            x: 10
+            y: 160
+            width: 220
+            height: 56
+            styles: flat_btn
+            radius: 12
+            checked:
+              bg_color: 0x1F3B38
+            widgets:
+              - label:
+                  x: 12
+                  y: 10
+                  text: "Smart charging"
+              - label:
+                  id: lbl_charge_line
+                  x: 12
+                  y: 30
+                  text: "--"
+                  styles: muted
+              - switch:
+                  id: ev_switch
+                  align: RIGHT_MID
+                  x: -12
+                  width: 40
+                  height: 22
+                  clickable: false
+                  bg_color: 0x4A4D55
+                  indicator:
+                    checked:
+                      bg_color: 0x4DB6AC
+            on_press:
+              - globals.set:
+                  id: swipe_block
+                  value: "true"
             on_click:
               - homeassistant.action:
                   action: input_boolean.toggle
                   data:
                     entity_id: input_boolean.smappee_charge
+
+        - label:
+            align: BOTTOM_MID
+            y: 2
+            recolor: true
+            text: "#4A4D55 •# #FFFFFF •# #4A4D55 • •#"
+
+    #--- 3 · Office light ---------------------------------------------------
+    - id: light_page
+      bg_color: 0x000000
+      text_color: 0xFFFFFF
+      scrollbar_mode: "OFF"
+      widgets:
+        - label:
+            x: 10
+            y: 10
+            text: "OFFICE LIGHT"
+            styles: caption
+        - label:
+            id: lbl_light_state
+            x: 10
+            y: 24
+            text: "--"
+            text_font: montserrat_22
+        - label:
+            id: lbl_clock_light
+            align: TOP_MID
+            y: 8
+            text: "--:--"
+            styles: muted
+        - button:
+            id: btn_light_power
+            x: 186
+            y: 10
+            width: 44
+            height: 44
+            styles: flat_btn
+            radius: 22
+            checked:
+              bg_color: 0xFFD9A0
+              text_color: 0x000000
+            widgets:
+              - label:
+                  align: CENTER
+                  text: ""
+                  text_font: montserrat_20
+            on_press:
+              - globals.set:
+                  id: swipe_block
+                  value: "true"
+            on_click:
+              - homeassistant.action:
+                  action: light.toggle
+                  data:
+                    entity_id: ${office_light}
+
+        # Brightness
+        - label:
+            x: 10
+            y: 62
+            text: "Brightness"
+            styles: muted
+        - label:
+            id: lbl_bri
+            align: TOP_RIGHT
+            x: -10
+            y: 62
+            text: "--%"
+        - slider:
+            id: sl_bri
+            x: 10
+            y: 80
+            width: 220
+            height: 36
+            min_value: 1
+            max_value: 100
+            value: 50
+            bg_color: 0x16181C
+            bg_opa: COVER
+            radius: 10
+            indicator:
+              bg_color: 0xFFD9A0
+              radius: 10
+            knob:
+              bg_opa: TRANSP
+              shadow_width: 0
+            disabled:
+              opa: 35%
+            on_press:
+              - globals.set:
+                  id: swipe_block
+                  value: "true"
+            on_release:
+              - homeassistant.action:
+                  action: light.turn_on
+                  data:
+                    entity_id: ${office_light}
+                  data_template:
+                    brightness_pct: "{{ value }}"
+                  variables:
+                    value: return (int) x;
+
+        # Colour temperature
+        - label:
+            x: 10
+            y: 124
+            text: "Colour temperature"
+            styles: muted
+        - label:
+            id: lbl_cct
+            align: TOP_RIGHT
+            x: -10
+            y: 124
+            text: "-- K"
+        - slider:
+            id: sl_cct
+            x: 10
+            y: 142
+            width: 220
+            height: 36
+            min_value: 2000
+            max_value: 6500
+            value: 3000
+            bg_color: 0xFF9F45
+            bg_grad_color: 0xA9CBFF
+            bg_grad_dir: HOR
+            bg_opa: COVER
+            radius: 10
+            indicator:
+              bg_opa: TRANSP
+            knob:
+              bg_color: 0xFFFFFF
+              radius: 4
+              pad_hor: -14
+              pad_ver: -4
+              border_width: 2
+              border_color: 0x000000
+            disabled:
+              opa: 35%
+            on_press:
+              - globals.set:
+                  id: swipe_block
+                  value: "true"
+            on_release:
+              - homeassistant.action:
+                  action: light.turn_on
+                  data:
+                    entity_id: ${office_light}
+                  data_template:
+                    color_temp_kelvin: "{{ value }}"
+                  variables:
+                    value: return (int) x;
+
+        # Presets
+        - button:
+            id: btn_warm
+            x: 10
+            y: 188
+            width: 69
+            height: 32
+            styles: flat_btn
+            disabled:
+              opa: 35%
+            widgets:
+              - label:
+                  align: CENTER
+                  text: "Warm"
+            on_press:
+              - globals.set:
+                  id: swipe_block
+                  value: "true"
+            on_click:
+              - homeassistant.action:
+                  action: light.turn_on
+                  data:
+                    entity_id: ${office_light}
+                    color_temp_kelvin: "2200"
+                    brightness_pct: "40"
+        - button:
+            id: btn_neutral
+            x: 86
+            y: 188
+            width: 68
+            height: 32
+            styles: flat_btn
+            disabled:
+              opa: 35%
+            widgets:
+              - label:
+                  align: CENTER
+                  text: "Neutral"
+            on_press:
+              - globals.set:
+                  id: swipe_block
+                  value: "true"
+            on_click:
+              - homeassistant.action:
+                  action: light.turn_on
+                  data:
+                    entity_id: ${office_light}
+                    color_temp_kelvin: "4000"
+                    brightness_pct: "80"
+        - button:
+            id: btn_focus
+            x: 161
+            y: 188
+            width: 69
+            height: 32
+            styles: flat_btn
+            disabled:
+              opa: 35%
+            widgets:
+              - label:
+                  align: CENTER
+                  text: "Focus"
+            on_press:
+              - globals.set:
+                  id: swipe_block
+                  value: "true"
+            on_click:
+              - homeassistant.action:
+                  action: light.turn_on
+                  data:
+                    entity_id: ${office_light}
+                    color_temp_kelvin: "6000"
+                    brightness_pct: "100"
+
+        - label:
+            align: BOTTOM_MID
+            y: 2
+            recolor: true
+            text: "#4A4D55 • •# #FFFFFF •# #4A4D55 •#"
+
+    #--- 4 · Idle / night (shown by on_idle, skipped when swiping) -----------
+    - id: idle_page
+      skip: true
+      bg_color: 0x000000
+      text_color: 0xD6D8DC
+      scrollbar_mode: "OFF"
+      widgets:
+        - label:
+            id: lbl_idle_time
+            align: CENTER
+            y: -40
+            text: "--:--"
+            text_font: montserrat_48
+        - label:
+            id: lbl_idle_date
+            align: CENTER
+            y: -6
+            text: ""
+            styles: muted
+        - label:
+            id: lbl_idle_solar
+            align: CENTER
+            x: -76
+            y: 50
+            text: "--"
+            text_color: 0xFFD600
+        - label:
+            id: lbl_idle_home
+            align: CENTER
+            y: 50
+            text: "--"
+        - label:
+            id: lbl_idle_battery
+            align: CENTER
+            x: 76
+            y: 50
+            text: "--"
+            text_color: 0x4DB6AC
+#endregion
